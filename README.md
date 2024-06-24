@@ -2,7 +2,7 @@
 
 ## Elevator Pitch
 
-It's firmware for a companion product to give soft power capability to a Macintosh which doesn't have it.  It imitates the PowerKey by Sophisticated Circuits and can power the Macintosh on by a press of the keyboard's power key and power it off when it shuts down, as well as powering the Macintosh on and off on a user-defined schedule.
+It's firmware for a companion product to give soft power capability to a Macintosh that doesn't have it.  It imitates the PowerKey Classic (model PK-1) by Sophisticated Circuits and can power the Macintosh on by a press of the keyboard's power key and power it off when it shuts down as well as powering the Macintosh on and off on a user-defined schedule.
 
 
 ## Technical Details
@@ -20,7 +20,7 @@ ADB Power Key ---> RA4 -|03    06|- RA1 <--- PS/2 Clock
 
 The relay control line is active high.
 
-The inputs all have internal weak pullup resistors enabled, but stronger external resistors should be used for the PS/2 lines (10kohm or stronger).
+The inputs all have internal weak pullup resistors enabled, but stronger external resistors should be used for the PS/2 lines (10 kΩ to 1 kΩ).
 
 
 ### Building Firmware
