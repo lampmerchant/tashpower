@@ -2,7 +2,9 @@
 
 ## Elevator Pitch
 
-It's firmware for a companion product to give soft power capability to a Macintosh that doesn't have it.  It imitates the PowerKey Classic (model PK-1) by Sophisticated Circuits and can power the Macintosh on by a press of the keyboard's power key and power it off when it shuts down as well as powering the Macintosh on and off on a user-defined schedule.
+It's firmware for a companion product to give soft power capability to a Macintosh that doesn't have it.  It imitates the PowerKey Classic (model PK-1) by Sophisticated Circuits and can power the Macintosh on by a press of a connected ADB keyboard's power key and power it off when it shuts down as well as powering the Macintosh on and off on a user-defined schedule.
+
+It also features a PS/2 keyboard interface that allows an independently powered PS/2 keyboard to power the Macintosh on and later makes it appear to the Macintosh as an ADB keyboard.
 
 
 ## Technical Details
