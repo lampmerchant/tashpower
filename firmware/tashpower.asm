@@ -18,7 +18,9 @@
 ;       Line Clock ---> RA3 -|04    05|- RA2 ---> Relay         ;
 ;                            '--------'                         ;
 ;                                                               ;
-;    Relay output is active high.                               ;
+;    Relay output is active low.  PS/2 data and clock should    ;
+;    be pulled up with external 10 kohm to 1 kohm resistors.    ;
+;    ADB power key and line clock pins use internal pullups.    ;
 ;                                                               ;
 ;;;                                                           ;;;
 
@@ -78,9 +80,7 @@ PCK_PIN	equ	RA1	;Pin where PS/2 clock is connected
 AU_TXON	equ	7	;Set when the selected device wants TX events
 AU_SEKB	equ	6	;Set when SRQ is enabled for keyboard
 AU_SRKB	equ	5	;Set when the keyboard is requesting service
-LC_IOCF	equ	4	;Set when the line clock pulses
-PK_IOCF	equ	3	;Set when ADB power key line goes low
-AK_CAPS	equ	2	;Set when ADB caps lock key is on (down)
+AK_CAPS	equ	4	;Set when ADB caps lock key is on (down)
 
 ;AP_FLAG:
 AP_RST	equ	7	;Set when a reset condition is detected, user clears
@@ -93,12 +93,11 @@ AP_SRQ	equ	1	;User sets to request service, user clears
 AP_RISE	equ	0	;Set when FSA should be entered on a rising edge too
 
 ;PP_FLAG:
-PP_IOCF	equ	7	;Set if the PS/2 clock went low
-PP_PAR	equ	6	;Set if the PS/2 peripheral expects a 1 parity bit
-PK_F0	equ	5	;Set if the PS/2 keyboard sent an 0xF0
-PK_E0	equ	4	;Set if the PS/2 keyboard sent an 0xE0
-PK_E1	equ	3	;Set if the PS/2 keyboard sent an 0xE1
-PK_IGNX	equ	2	;Set if the PS/2 keyboard should ignore next keystroke
+PP_PAR	equ	7	;Set if the PS/2 peripheral expects a 1 parity bit
+PK_F0	equ	6	;Set if the PS/2 keyboard sent an 0xF0
+PK_E0	equ	5	;Set if the PS/2 keyboard sent an 0xE0
+PK_E1	equ	4	;Set if the PS/2 keyboard sent an 0xE1
+PK_IGNX	equ	3	;Set if the PS/2 keyboard should ignore next keystroke
 
 ;AR_FLAG:
 AR_COL	equ	7	;Set if there was an ADB collision on relay's address
@@ -148,6 +147,7 @@ K3H_AD0	equ	0	; "
 	cblock	0x70	;Bank-common registers
 	
 	FLAGS	;You've got to have flags
+	UIOCAF	;User interrupt-on-change flag register
 	AP_FLAG	;ADB flags
 	AP_FSAP	;Pointer to where to resume ADB FSA
 	AP_SR	;ADB shift register
@@ -160,7 +160,6 @@ K3H_AD0	equ	0	; "
 	AU_TEMP	;Temporary holding variables between states
 	AU_TMP2	; "
 	AU_TMP3	; "
-	X2
 	X1
 	X0
 	
@@ -220,15 +219,11 @@ Interrupt
 	movlb	7		;Grab the current interrupt-on-change flags and
 	movf	IOCAF,W		; clear bits that were set
 	xorwf	IOCAF,F		; "
-	btfsc	WREG,PCK_PIN	;Set flag in PS/2 flag register if there was a
-	bsf	PP_FLAG,PP_IOCF	; falling edge on PS/2 clock
-	btfsc	WREG,LCK_PIN	;Set flag in flag register if there was a
-	bsf	FLAGS,LC_IOCF	; falling edge on line clock
-	btfsc	WREG,APK_PIN	;Set flag in flag register if there was a
-	bsf	FLAGS,PK_IOCF	; falling edge on ADB power key line
-	btfsc	WREG,ADB_PIN	;If the ADB pin has had a negative or positive
+	iorwf	UIOCAF,F	;Set corresponding bits in user IOC flags reg
+	btfsc	UIOCAF,ADB_PIN	;If the ADB pin has had a negative or positive
 	call	IntAdbEdge	; edge, handle it as an event for the ADB state
-	retfie			; machine
+	bcf	UIOCAF,ADB_PIN	; machine
+	retfie
 
 IntAdbTimer
 	movlb	1		;Disable the Timer0 interrupt
@@ -295,9 +290,6 @@ IntAdbTimeout
 ;;; Hardware Initialization ;;;
 
 Init
-	movlw	B'01010011'	;Timer0 uses instruction clock, 1:16 prescaler,
-	movwf	OPTION_REG	; thus ticking every 4 us; weak pull-ups on
-
 	banksel	IOCAN		;ADB, PS/2 clock, and line clock pins set IOCAF
 	movlw	(1 << ADB_PIN)|(1 << PCK_PIN)|(1 << LCK_PIN); on negative edge
 	movwf	IOCAN
@@ -330,21 +322,30 @@ Init
 	movwf	PMADRH		; key translation lookup table
 
 	banksel	LATA		;ADB pin ready to be pulled low, default state
-	clrf	LATA		; of relay is off (low)
+	movlw	1 << RLY_PIN	; of relay is off (high)
+	movwf	LATA
+
+	banksel	WPUA		;Pullups on ADB power key and line clock pins
+	movlw	(1 << APK_PIN) | (1 << LCK_PIN)
+	movwf	WPUA
 
 	banksel	TRISA		;Relay pin is an output
 	bcf	TRISA,RLY_PIN
+
+	movlw	B'01010011'	;Timer0 uses instruction clock, 1:16 prescaler,
+	movwf	OPTION_REG	; thus ticking every 4 us; weak pull-ups on
 
 	movlw	0x20		;Initialize key globals
 	movwf	FSR0H
 	movwf	FSR1H
 	clrf	FSR0L
 	clrf	FSR1L
+	clrf	FLAGS
+	clrf	UIOCAF
 	movlw	low AdbFsaIdle
 	movwf	AP_FSAP
 	clrf	AP_FLAG
 	clrf	AU_FSAP
-	clrf	FLAGS
 	movlw	low Ps2FsaStart
 	movwf	PP_FSAP
 	clrf	PP_FLAG
@@ -361,9 +362,9 @@ Main
 	call	SvcAdb		;Service the ADB peripheral
 	call	SvcPs2		;Service the PS/2 peripheral
 	movlb	0		;If ADB power key line went low, close relay
-	btfsc	FLAGS,PK_IOCF	; "
+	btfsc	UIOCAF,APK_PIN	; "
 	call	RelayPowerKey	; "
-	btfsc	FLAGS,LC_IOCF	;If line clock pulsed, tick the relay timers
+	btfsc	UIOCAF,LCK_PIN	;If line clock pulsed, tick the relay timers
 	call	TickRelayTimers	; "
 	bra	Main		;Loop
 
@@ -449,12 +450,12 @@ SvcAdD0	bcf	AP_FLAG,AP_RXDI	;Clear the flags that could have brought us
 
 SvcPs2
 	movlb	0		;If we got a negative edge on the PS/2 clock
-	btfsc	PP_FLAG,PP_IOCF	; pin, handle the bit that came in
+	btfsc	UIOCAF,PCK_PIN	; pin, handle the bit that came in
 	bra	SvcPs20		; "
 	btfsc	PIR1,TMR2IF	;If Timer2 interrupted, reset the PS/2 state
 	bra	SvcPs21		; machine
 	return			;Else, return
-SvcPs20	bcf	PP_FLAG,PP_IOCF	;Clear the interrupt
+SvcPs20	bcf	UIOCAF,PCK_PIN	;Clear the interrupt
 	clrf	TMR2		;Reset Timer2 as we've received a bit
 	bcf	PIR1,TMR2IF	; "
 	movlb	30		;Copy the received bit into carry
@@ -472,7 +473,7 @@ SvcPs21	bcf	PIR1,TMR2IF	;Clear the interrupt
 	return			;Return
 
 TickRelayTimers
-	bcf	FLAGS,LC_IOCF	;Clear interrupt
+	bcf	UIOCAF,LCK_PIN	;Clear interrupt
 	movf	AR_R1_3,F	;If register 1's MSB is zero, we leave it alone
 	btfsc	STATUS,Z	; "
 	bra	TRTime0		; "
@@ -485,11 +486,11 @@ TickRelayTimers
 	incf	AR_R1_3,F	; "
 	btfss	STATUS,Z	;If it didn't overflow, skip ahead
 	bra	TRTime0		; "
-	btfsc	PORTA,RLY_PIN	;If the relay is already closed, skip ahead
+	btfss	PORTA,RLY_PIN	;If the relay is already closed, skip ahead
 	bra	TRTime0		; "
 	bsf	AR_FLAG,AR_R1OF	;Flag that the relay was closed by an overflow
 	movlb	2		; of register 1 and close the relay
-	bsf	LATA,RLY_PIN	; "
+	bcf	LATA,RLY_PIN	; "
 TRTime0	movlb	0		;If register 2's MSB is zero, we leave it alone
 	movf	AR_R2_3,F	; "
 	btfsc	STATUS,Z	; "
@@ -503,12 +504,12 @@ TRTime0	movlb	0		;If register 2's MSB is zero, we leave it alone
 	incf	AR_R2_3,F	; "
 	btfss	STATUS,Z	;If it didn't overflow, we're done
 	return			; "
-	btfss	PORTA,RLY_PIN	;If the relay is already open, we're done
+	btfsc	PORTA,RLY_PIN	;If the relay is already open, we're done
 	return			; "
 	bcf	AR_FLAG,AR_R1OF	;Clear the flags that give the cause of the
 	bcf	AR_FLAG,AR_PKEY	; relay closing
 	movlb	2		;Open the relay
-	bcf	LATA,RLY_PIN	; "
+	bsf	LATA,RLY_PIN	; "
 	return			;Done
 
 
@@ -820,7 +821,7 @@ ARFT0L0	bsf	AR_FLAG,AR_COL	; flag, and we're done until we get another
 	retlw	low AUFsaIgnore	; "
 ARFT0L1	movf	AR_FLAG,W	;Copy cause bits from AR_FLAG
 	andlw	B'01100000'	; "
-	btfsc	PORTA,RLY_PIN	;Set high bit if relay is closed
+	btfss	PORTA,RLY_PIN	;Set high bit if relay is closed
 	iorlw	B'10000000'	; "
 	iorlw	AR_VERS		;Low bits represent firmware version
 	movwf	AP_BUF		; "
@@ -1278,13 +1279,13 @@ AKUpR22	addlw	-51		;0x33 (delete/backspace)
 	return
 
 RelayPowerKey
-	bcf	FLAGS,PK_IOCF	;Clear the interrupt
-RPK0	btfsc	PORTA,RLY_PIN	;If the relay is already closed, make no change
+	bcf	UIOCAF,APK_PIN	;Clear the interrupt
+RPK0	btfss	PORTA,RLY_PIN	;If the relay is already closed, make no change
 	return			; "
 	bcf	AR_FLAG,AR_R1OF	;Flag that a press of the power key closed the
 	bsf	AR_FLAG,AR_PKEY	; relay
 	movlb	2		;Close the relay
-	bsf	LATA,RLY_PIN	; "
+	bcf	LATA,RLY_PIN	; "
 	movlb	0		; "
 	return
 

@@ -20,9 +20,11 @@ ADB Power Key ---> RA4 -|03    06|- RA1 <--- PS/2 Clock
                         '--------'                     
 ```
 
-The relay control line is active high.
+The relay control line is active low.
 
-The inputs all have internal weak pullup resistors enabled, but stronger external resistors should be used for the PS/2 lines (10 kΩ to 1 kΩ).
+External resistors should be used for the PS/2 lines (10 kΩ to 1 kΩ).
+
+The ADB power key and line clock inputs have internal weak pullup resistors. 
 
 
 ### Building Firmware
